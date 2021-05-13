@@ -8,4 +8,4 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2"
-yaml = "0.3"
+yaml-rust = "0.4"

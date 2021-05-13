@@ -1,0 +1,7 @@
+TODO list:
+
+- no .unwrap, no .except, no ? in main(). always handle errors with match. if not in main, propogate via ? but only if it makes sense to do it
+- config
+- parallelization 
+- user loadable services in yaml format
+- socket activation? (still unsure, feedback, needed)

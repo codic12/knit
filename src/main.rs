@@ -50,9 +50,13 @@ unsafe fn _main() {
         name: "mount",
         kind: service::ServiceKind::Blocking,
         cmds: &[&["mount", "/dev/nvme0n1p6", "/"]],
-        running: RefCell::new(vec![]),
+        rproc: RefCell::new(Vec::new()),
+        running: RefCell::new(false),
     };
-    mnt_service.load();
+    match mnt_service.load() {
+        Ok(_) => {},
+        Err(e) => eprintln!("error while loading service: {}", e),
+    }
     let cmdline = cmdline_unwrapped
         .split_ascii_whitespace()
         .collect::<Vec<&str>>();
@@ -67,7 +71,9 @@ unsafe fn _main() {
                 // if it is a handled signal...
                 (s.handler)();
                 break;
-            } // if it is not, we simply ignore it.
+            } else {
+                eprintln!("warn: something sent unhandled {} signal to knit. don't do this!", s.sig);
+            }
         }
     }
 }
