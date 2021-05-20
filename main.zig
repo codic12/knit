@@ -170,6 +170,7 @@ pub fn main() !void {
     while (running) {
         var conn = try server.accept();
         var client = Client.init(conn, allocator) catch continue;
+        defer client.deinit();
         try client.runEvLoop();
         const lock = clients_mutex.tryAcquire().?;
         defer lock.release();
