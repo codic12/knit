@@ -7,7 +7,7 @@ const Mutex = std.Thread.Mutex;
 
 var units: std.ArrayList(*unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
-var clients_mutex = Mutex {};
+var clients_mutex = Mutex{};
 fn sigchld(signo: i32) callconv(.C) void {
     while (true) {
         var wstatus: u32 = undefined;
@@ -157,10 +157,6 @@ pub fn main() !void {
             defer socket.close();
 
             try writePacket(socket.writer(), "Hello World!");
-            // while (true) {
-            //     var buf: [max_len]u8 = undefined;
-            //     _ = try readPacket(socket.reader(), &buf);
-            // }
         }
     };
 
@@ -178,7 +174,6 @@ pub fn main() !void {
             continue;
         };
     }
-    
 }
 
 const Client = struct {
@@ -239,7 +234,7 @@ const Client = struct {
 
     pub fn deinit(self: *Client) void {
         self.running.store(false, .SeqCst);
-        self.thread.wait();
+        // self.thread.wait();
         self.allocator.destroy(self);
     }
 };
