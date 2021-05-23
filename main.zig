@@ -147,7 +147,11 @@ pub fn main() !void {
     var socket_addr = try net.Address.initUnix(socket_path);
     clients = std.ArrayList(*Client).init(allocator);
     defer clients.deinit();
-    defer for (clients.items) |item| item.deinit(); // dont bother removing, we're gonna clean it up and exit anyways
+    defer {
+        for (clients.items) |item| {
+            item.deinit(); // dont bother removing, we're gonna clean it up and exit anyways
+        }
+    }
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 
@@ -217,7 +221,7 @@ const Client = struct {
             if (item == self) {
                 std.debug.warn("destroying myself\n", .{});
                 item.deinit();
-                _ = clients.swapRemove(idx);
+                _ = clients.orderedRemove(idx);
                 break;
             }
         }

@@ -18,7 +18,7 @@ pub fn spawn(
         else => {
             if (wait) {
                 var s: u32 = undefined;
-                _ = std.os.system.waitpid(-1, &s, 0);
+                _ = std.os.system.waitpid(pid, &s, 0);
             }
             return pid;
         },
@@ -71,7 +71,8 @@ pub const Unit = struct {
     pub fn unload(self: *Unit) void {
         if (!self.running) return; // already unloaded; better safe than sorry
         for (self.cmds) |p| {
-            std.os.kill(p.pid, std.os.SIGKILL) catch {}; // dont really care about the errors just trying to kill em all
+            var s: u32 = undefined;
+            _ = std.os.system.waitpid(p.pid, &s, 0);
         }
         self.running = false;
     }
