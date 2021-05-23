@@ -163,17 +163,24 @@ pub fn main() !void {
     const t = try std.Thread.spawn(S.clientFn, {}); // spawn client
     defer t.wait();
     var running = true;
-    while (running) {
-        var conn = try server.accept();
-        var client = Client.init(conn, allocator) catch continue;
-        try client.runEvLoop();
-        const lock = clients_mutex.tryAcquire().?;
-        defer lock.release();
-        clients.append(client) catch {
-            client.deinit();
-            continue;
-        };
-    }
+    // while (running) {
+        // var conn = try server.accept();
+        // var client = Client.init(conn, allocator) catch continue;
+        // try client.runEvLoop();
+        // const lock = clients_mutex.tryAcquire().?;
+        // defer lock.release();
+        // clients.append(client) catch {
+            // client.deinit();
+            // continue;
+        // };
+    // }
+    // don't run in a loop so we can find memory leaks, nasty things
+    var conn = try server.accept();
+    var client = try Client.init(conn, allocator);
+    try client.runEvLoop();
+    const lock = clients_mutex.tryAcquire().?;
+    defer lock.release();
+    try clients.append(client);
 }
 
 const Client = struct {
