@@ -146,16 +146,20 @@ pub fn main() !void {
 
     var socket_addr = try net.Address.initUnix(socket_path);
     clients = std.ArrayList(*Client).init(allocator);
-    defer clients.deinit();
+    
     defer {
+        const lock = clients_mutex.acquire();
+        defer lock.release();
         for (clients.items) |item| {
             item.deinit(); // dont bother removing, we're gonna clean it up and exit anyways
         }
+        clients.deinit();
     }
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 
     const S = struct {
+
         fn clientFn(_: void) !void {
             const socket = try net.connectUnixSocket(socket_path);
             defer socket.close();
@@ -167,24 +171,24 @@ pub fn main() !void {
     const t = try std.Thread.spawn(S.clientFn, {}); // spawn client
     defer t.wait();
     var running = true;
-    // while (running) {
-        // var conn = try server.accept();
-        // var client = Client.init(conn, allocator) catch continue;
-        // try client.runEvLoop();
-        // const lock = clients_mutex.tryAcquire().?;
-        // defer lock.release();
-        // clients.append(client) catch {
-            // client.deinit();
-            // continue;
-        // };
-    // }
+    while (running) {
+        var conn = try server.accept();
+        var client = Client.init(conn, allocator) catch continue;
+        try client.runEvLoop();
+        const lock = clients_mutex.acquire();
+        defer lock.release();
+        clients.append(client) catch {
+            client.deinit();
+            continue;
+        };
+    }
     // don't run in a loop so we can find memory leaks, nasty things
-    var conn = try server.accept();
-    var client = try Client.init(conn, allocator);
-    try client.runEvLoop();
-    const lock = clients_mutex.tryAcquire().?;
-    defer lock.release();
-    try clients.append(client);
+    // var conn = try server.accept();
+    // var client = try Client.init(conn, allocator);
+    // try client.runEvLoop();
+    // const lock = clients_mutex.acquire();
+    // defer lock.release();
+    // try clients.append(client);
 }
 
 const Client = struct {
@@ -214,7 +218,7 @@ const Client = struct {
         std.debug.warn("loop done!\n", .{});
         // the loop is done!
         // acquire lock
-        const lock = clients_mutex.tryAcquire().?;
+        const lock = clients_mutex.acquire();
         defer lock.release(); // and release it later
         std.debug.warn("lock acquired!\n", .{});
         for (clients.items) |item, idx| {
