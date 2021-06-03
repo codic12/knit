@@ -8,6 +8,7 @@ const Mutex = std.Thread.Mutex;
 var units: std.ArrayList(*unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = Mutex{};
+
 fn sigchld(signo: i32) callconv(.C) void {
     while (true) {
         var wstatus: u32 = undefined;
@@ -159,7 +160,6 @@ pub fn main() !void {
     try server.listen(socket_addr);
 
     const S = struct {
-
         fn clientFn(_: void) !void {
             const socket = try net.connectUnixSocket(socket_path);
             defer socket.close();
@@ -194,7 +194,7 @@ pub fn main() !void {
 const Client = struct {
     conn: net.StreamServer.Connection,
     thread: *std.Thread,
-    running: std.atomic.Bool, // I think this works
+    running: std.atomic.Atomic(bool), // I think this works
     allocator: *std.mem.Allocator,
     // other state
     // maybe some queues of packets or something
