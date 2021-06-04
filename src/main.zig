@@ -4,6 +4,8 @@ const max_len = 512;
 const Error = error{SystemCallFailure};
 const net = std.net;
 const Mutex = std.Thread.Mutex;
+usingnamespace @import("ipc.zig");
+const Client = @import("client.zig").Client;
 
 var units: std.ArrayList(*unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
@@ -44,20 +46,6 @@ fn sigchld(signo: i32) callconv(.C) void {
             std.debug.warn("note: killed by signal\n", .{});
         }
     }
-}
-
-fn writePacket(writer: anytype, bytes: []const u8) !void {
-    if (bytes.len > max_len) return error.InvalidPacket;
-    try writer.writeIntLittle(u32, @intCast(u32, bytes.len));
-    try writer.writeAll(bytes);
-}
-
-fn readPacket(reader: anytype, buf: *[max_len]u8) ![]const u8 {
-    const len = try reader.readIntLittle(u32);
-    if (len > max_len) return error.InvalidPacket;
-    const num_read = try reader.readAll(buf[0..len]);
-    if (num_read != len) return error.Disconnected;
-    return buf[0..len];
 }
 
 const UnitJson = struct {
@@ -156,6 +144,7 @@ pub fn main() !void {
         }
         clients.deinit();
     }
+    
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 
@@ -173,7 +162,7 @@ pub fn main() !void {
     var running = true;
     while (running) {
         var conn = try server.accept();
-        var client = Client.init(conn, allocator) catch continue;
+        var client = try Client.init(conn, allocator, &clients, &clients_mutex,);
         try client.runEvLoop();
         const lock = clients_mutex.acquire();
         defer lock.release();
@@ -191,65 +180,4 @@ pub fn main() !void {
     // try clients.append(client);
 }
 
-const Client = struct {
-    conn: net.StreamServer.Connection,
-    thread: *std.Thread,
-    running: std.atomic.Atomic(bool), // I think this works
-    allocator: *std.mem.Allocator,
-    // other state
-    // maybe some queues of packets or something
 
-    fn readerThreadProc(self: *Client) void {
-        std.debug.warn("Hallo ", .{});
-        while (self.running.load(.SeqCst)) {
-            var buf: [max_len]u8 = undefined;
-            std.debug.warn("about to...", .{});
-            var x = readPacket(self.conn.stream.reader(), &buf) catch |e| {
-                switch (e) {
-                    error.EndOfStream => {
-                        self.running.store(false, .SeqCst);
-                        break; // out of the while loop
-                    },
-                    else => unreachable, // add more
-                }
-            };
-            std.debug.warn("x {s}\n", .{x});
-        }
-        std.debug.warn("loop done!\n", .{});
-        // the loop is done!
-        // acquire lock
-        const lock = clients_mutex.acquire();
-        defer lock.release(); // and release it later
-        std.debug.warn("lock acquired!\n", .{});
-        for (clients.items) |item, idx| {
-            if (item == self) {
-                std.debug.warn("destroying myself\n", .{});
-                item.deinit();
-                _ = clients.orderedRemove(idx);
-                break;
-            }
-        }
-    }
-
-    pub fn runEvLoop(self: *Client) !void {
-        self.thread = try std.Thread.spawn(readerThreadProc, self);
-    }
-
-    pub fn init(c: net.StreamServer.Connection, allocator: *std.mem.Allocator) !*Client {
-        const client = try allocator.create(Client);
-        client.* = .{
-            .conn = c,
-            .running = undefined,
-            .thread = undefined,
-            .allocator = allocator,
-        };
-        client.running.store(true, .SeqCst);
-        return client;
-    }
-
-    pub fn deinit(self: *Client) void {
-        self.running.store(false, .SeqCst);
-        // self.thread.wait();
-        self.allocator.destroy(self);
-    }
-};
