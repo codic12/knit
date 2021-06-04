@@ -9,7 +9,7 @@ pub const Client = struct {
     allocator: *std.mem.Allocator,
     clients: *std.ArrayList(*Client),
     clients_mutex: *std.Thread.Mutex,
-    
+
     fn readerThreadProc(self: *Client) void {
         std.debug.warn("Hallo ", .{});
         while (self.running.load(.SeqCst)) {
@@ -36,7 +36,7 @@ pub const Client = struct {
         for (self.clients.items) |item, idx| {
             if (item == self) {
                 std.debug.warn("destroying myself\n", .{});
-                std.debug.warn("The len is: {} and we are removing at: {}\n", .{self.clients.items.len, idx});
+                std.debug.warn("The len is: {} and we are removing at: {}\n", .{ self.clients.items.len, idx });
                 idx_outer = idx;
                 break;
             }
@@ -52,7 +52,12 @@ pub const Client = struct {
     }
 
     // ctor
-    pub fn init(c: std.net.StreamServer.Connection, allocator: *std.mem.Allocator, clients: *std.ArrayList(*Client), clients_mutex: *std.Thread.Mutex,) !*Client {
+    pub fn init(
+        c: std.net.StreamServer.Connection,
+        allocator: *std.mem.Allocator,
+        clients: *std.ArrayList(*Client),
+        clients_mutex: *std.Thread.Mutex,
+    ) !*Client {
         const client = try allocator.create(Client);
         client.* = .{
             .conn = c,

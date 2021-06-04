@@ -133,7 +133,7 @@ pub fn main() !void {
 
     var socket_addr = try std.net.Address.initUnix(socket_path);
     clients = std.ArrayList(*Client).init(allocator);
-    
+
     defer {
         const lock = clients_mutex.acquire();
         defer lock.release();
@@ -142,7 +142,7 @@ pub fn main() !void {
         }
         clients.deinit();
     }
-    
+
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 
@@ -160,7 +160,12 @@ pub fn main() !void {
     var running = true;
     while (running) {
         var conn = try server.accept();
-        var client = try Client.init(conn, allocator, &clients, &clients_mutex,);
+        var client = try Client.init(
+            conn,
+            allocator,
+            &clients,
+            &clients_mutex,
+        );
         try client.runEvLoop();
         const lock = clients_mutex.acquire();
         defer lock.release();
@@ -171,11 +176,9 @@ pub fn main() !void {
     }
     // don't run in a loop so we can find memory leaks, nasty things
     // var conn = try server.accept();
-    // var client = try Client.init(conn, allocator);
+    // var client = try Client.init(conn, allocator, &clients, &clients_mutex);
     // try client.runEvLoop();
     // const lock = clients_mutex.acquire();
     // defer lock.release();
     // try clients.append(client);
 }
-
-
