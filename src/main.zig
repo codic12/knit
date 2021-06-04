@@ -4,7 +4,7 @@ const max_len = 512;
 const Error = error{SystemCallFailure};
 const net = std.net;
 const Mutex = std.Thread.Mutex;
-usingnamespace @import("ipc.zig");
+usingnamespace @import("packets.zig");
 const Client = @import("client.zig").Client;
 
 var units: std.ArrayList(*unit.Unit) = undefined;

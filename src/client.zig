@@ -1,6 +1,6 @@
 const std = @import("std");
 const max_len = 512;
-usingnamespace @import("ipc.zig");
+usingnamespace @import("packets.zig");
 
 pub const Client = struct {
     conn: std.net.StreamServer.Connection,
