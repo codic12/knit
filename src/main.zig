@@ -1,15 +1,13 @@
 const std = @import("std");
 const unit = @import("unit.zig");
 const max_len = 512;
-const Error = error{SystemCallFailure};
-const net = std.net;
-const Mutex = std.Thread.Mutex;
+const Error = error{SigActionFailure};
 usingnamespace @import("packets.zig");
 const Client = @import("client.zig").Client;
 
 var units: std.ArrayList(*unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
-var clients_mutex = Mutex{};
+var clients_mutex = std.Thread.Mutex{};
 
 fn sigchld(signo: i32) callconv(.C) void {
     while (true) {
@@ -73,7 +71,7 @@ const UnitJson = struct {
 fn sigaction(signo: u6, sigact: *const std.os.system.Sigaction) !void {
     switch (std.os.errno(std.os.system.sigaction(signo, sigact, null))) {
         0 => {},
-        else => return error.SystemCallFailure, // Nein, nein, nein! Our errors muss grosser sein, sein, sein!
+        else => return error.SigActionFailure,
     }
 }
 
@@ -128,12 +126,12 @@ pub fn main() !void {
     try l.load(&env);
     std.debug.warn("done loading\n", .{});
 
-    var server = net.StreamServer.init(.{});
+    var server = std.net.StreamServer.init(.{});
     defer server.deinit();
 
     const socket_path = "socket.unix";
 
-    var socket_addr = try net.Address.initUnix(socket_path);
+    var socket_addr = try std.net.Address.initUnix(socket_path);
     clients = std.ArrayList(*Client).init(allocator);
     
     defer {
@@ -150,7 +148,7 @@ pub fn main() !void {
 
     const S = struct {
         fn clientFn(_: void) !void {
-            const socket = try net.connectUnixSocket(socket_path);
+            const socket = try std.net.connectUnixSocket(socket_path);
             defer socket.close();
 
             try writePacket(socket.writer(), "Hello World!");
