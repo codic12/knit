@@ -41,7 +41,7 @@ fn sigchld(signo: i32) callconv(.C) void {
             continue;
         }
         if (std.os.system.WIFSIGNALED(wstatus)) { // killed by signal
-            std.debug.warn("note: killed by signal\n", .{});
+            std.debug.print("note: killed by signal\n", .{});
         }
     }
 }
@@ -117,14 +117,14 @@ pub fn main() !void {
         .allocator = allocator,
     });
     defer std.json.parseFree(UnitJson, x, .{ .allocator = allocator });
-    std.debug.warn("{s}\n", .{x.commands});
+    std.debug.print("{s}\n", .{x.commands});
     var y = try x.toUnit(allocator);
     defer y.deinit();
-    std.debug.warn("{any}\n", .{y.cmds[0]});
+    std.debug.print("{any}\n", .{y.cmds[0]});
     defer l.deinit();
     try units.append(&l);
     try l.load(&env);
-    std.debug.warn("done loading\n", .{});
+    std.debug.print("done loading\n", .{});
 
     var server = std.net.StreamServer.init(.{});
     defer server.deinit();

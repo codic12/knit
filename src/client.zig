@@ -11,10 +11,10 @@ pub const Client = struct {
     clients_mutex: *std.Thread.Mutex,
 
     fn readerThreadProc(self: *Client) void {
-        std.debug.warn("Hallo ", .{});
+        std.debug.print("Hallo ", .{});
         while (self.running.load(.SeqCst)) {
             var buf: [max_len]u8 = undefined;
-            std.debug.warn("about to...", .{});
+            std.debug.print("about to...", .{});
             var x = readPacket(self.conn.stream.reader(), &buf) catch |e| {
                 switch (e) {
                     error.EndOfStream => {
@@ -24,19 +24,19 @@ pub const Client = struct {
                     else => unreachable, // add more
                 }
             };
-            std.debug.warn("x {s}\n", .{x});
+            std.debug.print("x {s}\n", .{x});
         }
-        std.debug.warn("loop done!\n", .{});
+        std.debug.print("loop done!\n", .{});
         // the loop is done!
         // acquire lock
         const lock = self.clients_mutex.acquire();
         defer lock.release(); // and release it later
-        std.debug.warn("lock acquired!\n", .{});
+        std.debug.print("lock acquired!\n", .{});
         var idx_outer: ?usize = undefined;
         for (self.clients.items) |item, idx| {
             if (item == self) {
-                std.debug.warn("destroying myself\n", .{});
-                std.debug.warn("The len is: {} and we are removing at: {}\n", .{ self.clients.items.len, idx });
+                std.debug.print("destroying myself\n", .{});
+                std.debug.print("The len is: {} and we are removing at: {}\n", .{ self.clients.items.len, idx });
                 idx_outer = idx;
                 break;
             }
