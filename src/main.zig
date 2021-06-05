@@ -10,6 +10,7 @@ var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
 
 fn sigchld(signo: i32) callconv(.C) void {
+    std.debug.print("Sigchld", .{});
     while (true) {
         var wstatus: u32 = undefined;
         const rc = std.os.system.waitpid(-1, &wstatus, std.os.WNOHANG);

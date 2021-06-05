@@ -17,8 +17,7 @@ pub fn spawn(
         },
         else => {
             if (wait) {
-                var s: u32 = undefined;
-                _ = std.os.system.waitpid(pid, &s, 0);
+                _ = std.os.waitpid(pid, 0);
             }
             return pid;
         },
@@ -71,8 +70,7 @@ pub const Unit = struct {
     pub fn unload(self: *Unit) void {
         if (!self.running) return; // already unloaded; better safe than sorry
         for (self.cmds) |p| {
-            var s: u32 = undefined;
-            _ = std.os.system.waitpid(p.pid, &s, 0);
+            _ = std.os.waitpid(p.pid, 0);
         }
         self.running = false;
     }
