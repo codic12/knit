@@ -55,6 +55,7 @@ pub const Client = struct {
 
     pub fn write(self: *Client, content: []const u8) !void {
         if (!self.running.load(.SeqCst)) return error.NotRunning;
+        std.debug.warn("from write: {}\n", .{self.running.load(.SeqCst)});
         try writePacket(self.conn.stream.writer(), content);
     }
     // ctor

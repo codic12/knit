@@ -153,6 +153,7 @@ pub fn main() !void {
             defer socket.close();
             std.debug.print("writing message\n", .{});
             try writePacket(socket.writer(), "Hello World!");
+            std.debug.warn("message written, client done\n", .{});
         }
     };
 
