@@ -151,7 +151,7 @@ pub fn main() !void {
         fn clientFn(_: void) !void {
             const socket = try std.net.connectUnixSocket(socket_path);
             defer socket.close();
-
+            std.debug.print("writing message\n", .{});
             try writePacket(socket.writer(), "Hello World!");
         }
     };
@@ -174,6 +174,7 @@ pub fn main() !void {
             client.deinit();
             continue;
         };
+        try client.write("hello world");
     }
     // don't run in a loop so we can find memory leaks, nasty things
     // var conn = try server.accept();

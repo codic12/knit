@@ -2,6 +2,8 @@ const std = @import("std");
 const max_len = 512;
 usingnamespace @import("packets.zig");
 
+const Error = error{NotRunning};
+
 pub const Client = struct {
     conn: std.net.StreamServer.Connection,
     thread: *std.Thread,
@@ -11,14 +13,13 @@ pub const Client = struct {
     clients_mutex: *std.Thread.Mutex,
 
     fn readerThreadProc(self: *Client) void {
-        std.debug.print("Hallo ", .{});
         while (self.running.load(.SeqCst)) {
             var buf: [max_len]u8 = undefined;
-            std.debug.print("about to...", .{});
+            std.debug.print("about to...\n", .{});
             var x = readPacket(self.conn.stream.reader(), &buf) catch |e| {
                 switch (e) {
                     error.EndOfStream => {
-                        self.running.store(false, .SeqCst);
+                        std.debug.print("eof\n", .{});
                         break; // out of the while loop
                     },
                     else => unreachable, // add more
@@ -26,6 +27,7 @@ pub const Client = struct {
             };
             std.debug.print("x {s}\n", .{x});
         }
+        self.running.store(false, .SeqCst);
         std.debug.print("loop done!\n", .{});
         // the loop is done!
         // acquire lock
@@ -51,6 +53,10 @@ pub const Client = struct {
         self.thread = try std.Thread.spawn(readerThreadProc, self);
     }
 
+    pub fn write(self: *Client, content: []const u8) !void {
+        if (!self.running.load(.SeqCst)) return error.NotRunning;
+        try writePacket(self.conn.stream.writer(), content);
+    }
     // ctor
     pub fn init(
         c: std.net.StreamServer.Connection,
