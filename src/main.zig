@@ -8,8 +8,12 @@ const Client = @import("client.zig").Client;
 var units: std.ArrayList(*unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
+var pipefds: [2]std.os.fd_t = undefined;
 
-fn sigchld(signo: i32) callconv(.C) void {
+fn _sigchld(_: i32) callconv(.C) void {
+    _ = std.os.write(pipefds[1], ".") catch unreachable; // error handle please
+}
+fn sigchld() void {
     std.debug.print("Sigchld", .{});
     while (true) {
         var wstatus: u32 = undefined;
@@ -83,9 +87,22 @@ pub fn main() !void {
     units = std.ArrayList(*unit.Unit).init(allocator); // defined at global scope for sigchld handler
     defer units.deinit();
 
+    pipefds = try std.os.pipe();
+
+    _ = try std.Thread.spawn(struct {
+        pub fn callback(_: void) !void {
+            var rmsg: [1]u8 = .{0};
+            while (true) {
+                _ = try std.os.read(pipefds[0], &rmsg);
+                rmsg[0] = 0;
+                sigchld();
+            }
+        }
+    }.callback, {});
+
     // handle SIGCHLD
     try sigaction(std.os.SIGCHLD, &.{
-        .handler = .{ .handler = sigchld },
+        .handler = .{ .handler = _sigchld },
         .mask = std.os.system.empty_sigset,
         .flags = std.os.system.SA_NOCLDSTOP,
     });
@@ -154,6 +171,10 @@ pub fn main() !void {
             std.debug.print("writing message\n", .{});
             try writePacket(socket.writer(), "Hello World!");
             std.debug.warn("message written, client done\n", .{});
+            while (true) {
+                var buf: [512]u8 = undefined;
+                _ = try readPacket(socket.reader(), &buf);
+            }
         }
     };
 
