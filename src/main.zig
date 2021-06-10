@@ -94,6 +94,7 @@ pub fn main() !void {
             var rmsg: [1]u8 = .{0};
             while (true) {
                 _ = try std.os.read(pipefds[0], &rmsg);
+                if (rmsg[0] != '.') continue; // . = sigchld handle
                 rmsg[0] = 0;
                 sigchld();
             }
