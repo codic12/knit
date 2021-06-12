@@ -56,11 +56,6 @@ pub const Client = struct {
         self.thread = try std.Thread.spawn(readerThreadProc, self);
     }
 
-    pub fn write(self: *Client, content: []const u8) !void {
-        if (!self.running.load(.SeqCst)) return error.NotRunning;
-        std.debug.warn("from write: {}\n", .{self.running.load(.SeqCst)});
-        try writePacket(self.conn.stream.writer(), content);
-    }
     // ctor
     pub fn init(
         c: std.os.socket_t,
