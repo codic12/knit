@@ -5,7 +5,7 @@ usingnamespace @import("packets.zig");
 const Error = error{NotRunning};
 
 pub const Client = struct {
-    conn: std.net.StreamServer.Connection,
+    conn: std.os.socket_t,
     thread: *std.Thread,
     running: std.atomic.Atomic(bool),
     allocator: *std.mem.Allocator,
@@ -16,7 +16,7 @@ pub const Client = struct {
         while (self.running.load(.SeqCst)) {
             var buf: [max_len]u8 = undefined;
             std.debug.print("about to...\n", .{});
-            var x = readPacket(self.conn.stream.reader(), &buf) catch |e| {
+            var x = readPacket(self.conn, &buf) catch |e| {
                 switch (e) {
                     error.EndOfStream => {
                         std.debug.print("eof\n", .{});
@@ -60,7 +60,7 @@ pub const Client = struct {
     }
     // ctor
     pub fn init(
-        c: std.net.StreamServer.Connection,
+        c: std.os.socket_t,
         allocator: *std.mem.Allocator,
         clients: *std.ArrayList(*Client),
         clients_mutex: *std.Thread.Mutex,

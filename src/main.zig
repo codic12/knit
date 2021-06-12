@@ -13,6 +13,7 @@ var pipefds: [2]std.os.fd_t = undefined;
 fn _sigchld(_: i32) callconv(.C) void {
     _ = std.os.write(pipefds[1], ".") catch unreachable; // error handle please
 }
+
 fn sigchld() void {
     std.debug.print("Sigchld", .{});
     while (true) {
@@ -30,10 +31,8 @@ fn sigchld() void {
         for (units.items) |u, i| {
             for (u.cmds) |p, j| {
                 if (p.pid == pid) {
-                    // in the future, we want to start it again
-                    // does not work for blocking which is ok
-                    // because that never makes the running change in first place
-                    // as it has to wait
+                    // in the future, we want to add a done field instead of just killing the rest.
+                    // no killing, it is prohibited.
                     units.items[i].running = false;
                     for (u.cmds) |l| {
                         if (l.pid != pid) std.os.kill(l.pid, std.os.SIGKILL) catch {}; // this one has already been killed so we kill the rest
@@ -150,7 +149,6 @@ pub fn main() !void {
 
     const socket_path = "socket.unix";
 
-    var socket_addr = try std.net.Address.initUnix(socket_path);
     clients = std.ArrayList(*Client).init(allocator);
 
     defer {
@@ -162,30 +160,55 @@ pub fn main() !void {
         clients.deinit();
     }
 
-    defer std.fs.cwd().deleteFile(socket_path) catch {};
-    try server.listen(socket_addr);
+    var addr = std.mem.zeroes(std.os.sockaddr_un);
+    var buf: [512]u8 = undefined;
+    var fd: std.os.socket_t = undefined;
+    var cl: std.os.socket_t = undefined;
+    var rc: usize = undefined;
+
+    fd = try std.os.socket(std.os.AF_UNIX, std.os.SOCK_STREAM, 0);
+
+    addr.family = std.os.AF_UNIX;
+    std.mem.set(u8, &addr.path, 0);
+    std.mem.copy(u8, &addr.path, "./socket");
+
+    std.debug.print("{s}\n", .{addr.path}); // "./socket"
+
+    std.fs.cwd().deleteFile("./socket") catch |e| switch (e) {
+        error.FileNotFound => {},
+        else => unreachable, // omg please stop
+    };
+
+    try std.os.bind(fd, @ptrCast(*const std.os.sockaddr, &addr), @sizeOf(@TypeOf(addr)));
+    try std.os.listen(fd, 5); // backlog 5
 
     const S = struct {
         fn clientFn(_: void) !void {
             const socket = try std.net.connectUnixSocket(socket_path);
             defer socket.close();
-            std.debug.print("writing message\n", .{});
-            try writePacket(socket.writer(), "Hello World!");
-            std.debug.warn("message written, client done\n", .{});
-            while (true) {
-                var buf: [512]u8 = undefined;
-                _ = try readPacket(socket.reader(), &buf);
-            }
+            // std.debug.print("writing message\n", .{});
+            // try writePacket(socket.writer(), "Hello World!");
+            // std.debug.warn("message written, client done\n", .{});
+            // while (true) {
+            //     var buf: [512]u8 = undefined;
+            //     _ = try readPacket(socket.reader(), &buf);
+            // }
         }
     };
 
     const t = try std.Thread.spawn(S.clientFn, {}); // spawn client
     defer t.wait();
     var running = true;
-    while (running) {
-        var conn = try server.accept();
+
+    while (true) {
+        cl = try std.os.accept(fd, null, null, 0);
+        // var creds = std.mem.zeroes(ucred);
+        // var len: u32 = @sizeOf(ucred);
+        // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
+        // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
+
         var client = try Client.init(
-            conn,
+            cl,
             allocator,
             &clients,
             &clients_mutex,
@@ -197,7 +220,8 @@ pub fn main() !void {
             client.deinit();
             continue;
         };
-        try client.write("hello world");
+        
+        std.debug.print("done reading\n", .{});
     }
     // don't run in a loop so we can find memory leaks, nasty things
     // var conn = try server.accept();
