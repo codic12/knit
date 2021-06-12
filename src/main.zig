@@ -147,8 +147,6 @@ pub fn main() !void {
     var server = std.net.StreamServer.init(.{});
     defer server.deinit();
 
-    const socket_path = "socket.unix";
-
     clients = std.ArrayList(*Client).init(allocator);
 
     defer {
@@ -184,7 +182,7 @@ pub fn main() !void {
 
     const S = struct {
         fn clientFn(_: void) !void {
-            const socket = try std.net.connectUnixSocket(socket_path);
+            const socket = try std.net.connectUnixSocket("./socket");
             defer socket.close();
             // std.debug.print("writing message\n", .{});
             // try writePacket(socket.writer(), "Hello World!");

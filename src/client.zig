@@ -22,7 +22,10 @@ pub const Client = struct {
                         std.debug.print("eof\n", .{});
                         break; // out of the while loop
                     },
-                    else => unreachable, // add more
+                    else => {
+                        std.debug.print("e: {}\n", .{e});
+                        unreachable;
+                    }, // add more
                 }
             };
             std.debug.print("x {s}\n", .{x});
