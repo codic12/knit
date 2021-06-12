@@ -5,14 +5,18 @@ pub fn writePacket(writer: std.os.fd_t, bytes: []const u8) !void {
     if (bytes.len > max_len) return error.InvalidPacket;
     var ln: [(@typeInfo(u32).Int.bits + 7) / 8]u8 = undefined;
     std.mem.writeIntLittle(u32, &ln, @intCast(u32, bytes.len));
-    try std.os.send(fd, &ln, std.os.MSG_NOSIGNAL);
-    try std.os.send(fd, &bytes, std.os.MSG_NOSIGNAL);
+    _ = try std.os.send(writer, &ln, std.os.MSG_NOSIGNAL);
+    _ = try std.os.send(writer, bytes, std.os.MSG_NOSIGNAL);
 }
 
 pub fn readPacket(reader: std.os.fd_t, buf: *[max_len]u8) ![]const u8 {
     var ln: [4]u8 = undefined;
-    _ = try std.os.recv(reader, &ln, std.os.MSG_NOSIGNAL);
+    var x = try std.os.recv(reader, &ln, std.os.MSG_NOSIGNAL);
+    if (x == 0) {
+        return error.EndOfStream;
+    }
     const len = std.mem.readIntLittle(u32, &ln);
+    std.debug.print("{}\n", .{ln[0]});
     if (len > max_len) return error.InvalidPacket;
     var idx: usize = 0;
     while (idx != buf.len) {
@@ -23,5 +27,19 @@ pub fn readPacket(reader: std.os.fd_t, buf: *[max_len]u8) ![]const u8 {
         idx += num_read;
     }
     if (idx != len) return error.Disconnected;
+    return buf[0..len];
+}
+
+pub fn writePacketWriter(writer: anytype, bytes: []const u8) !void {
+    if (bytes.len > max_len) return error.InvalidPacket;
+    try writer.writeIntLittle(u32, @intCast(u32, bytes.len));
+    try writer.writeAll(bytes);
+}
+
+pub fn readPacketReader(reader: anytype, buf: *[max_len]u8) ![]const u8 {
+    const len = try reader.readIntLittle(u32);
+    if (len > max_len) return error.InvalidPacket;
+    const num_read = try reader.readAll(buf[0..len]);
+    if (num_read != len) return error.Disconnected;
     return buf[0..len];
 }

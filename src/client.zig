@@ -18,13 +18,13 @@ pub const Client = struct {
             std.debug.print("about to...\n", .{});
             var x = readPacket(self.conn, &buf) catch |e| {
                 switch (e) {
-                    error.EndOfStream => {
+                    error.EndOfStream, error.ConnectionResetByPeer => {
                         std.debug.print("eof\n", .{});
                         break; // out of the while loop
                     },
                     else => {
                         std.debug.print("e: {}\n", .{e});
-                        unreachable;
+                        std.os.exit(1);
                     }, // add more
                 }
             };

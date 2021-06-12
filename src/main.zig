@@ -144,9 +144,6 @@ pub fn main() !void {
     try l.load(&env);
     std.debug.print("done loading\n", .{});
 
-    var server = std.net.StreamServer.init(.{});
-    defer server.deinit();
-
     clients = std.ArrayList(*Client).init(allocator);
 
     defer {
@@ -204,7 +201,6 @@ pub fn main() !void {
         // var len: u32 = @sizeOf(ucred);
         // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
         // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
-
         var client = try Client.init(
             cl,
             allocator,
@@ -218,7 +214,12 @@ pub fn main() !void {
             client.deinit();
             continue;
         };
-        
+        writePacket(client.conn, "Hello World!") catch |e| switch (e) {
+            error.BrokenPipe => {
+                std.debug.print("pipe broken, couldn't send\n", .{});
+            },
+            else => unreachable
+        };
         std.debug.print("done reading\n", .{});
     }
     // don't run in a loop so we can find memory leaks, nasty things
