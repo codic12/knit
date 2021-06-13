@@ -20,7 +20,7 @@ pub fn readPacket(reader: std.os.fd_t, buf: *[max_len]u8) ![]const u8 {
     if (len > max_len) return error.InvalidPacket;
     var idx: usize = 0;
     while (idx != len) { 
-        const num_read = try std.os.recv(reader, buf[0..len], std.os.MSG_NOSIGNAL);
+        const num_read = try std.os.recv(reader, buf[idx..], std.os.MSG_NOSIGNAL);
         if (num_read == 0) {
             return error.EndOfStream;
         }
