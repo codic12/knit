@@ -32,8 +32,13 @@ fn sigchld() void {
             for (u.cmds) |*p| {
                 if (p.pid == pid) {
                     p.running = false;
+                    var x: usize = 0;
                     for (u.cmds) |*l| {
-                        if (l.pid != pid) std.os.kill(l.pid, std.os.SIGKILL) catch {}; 
+                        if (!l.running) x += 1;
+                    }
+                    if (x == u.cmds.len) {
+                        std.debug.warn("service completed: all services have exited\n", .{});
+                        u.running = false;
                     }
                 }
             }
