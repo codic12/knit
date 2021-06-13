@@ -11,21 +11,23 @@ pub fn writePacket(writer: std.os.fd_t, bytes: []const u8) !void {
 
 pub fn readPacket(reader: std.os.fd_t, buf: *[max_len]u8) ![]const u8 {
     var ln: [4]u8 = undefined;
-    var x = try std.os.recv(reader, &ln, std.os.MSG_NOSIGNAL);
+    var x = try std.os.recv(reader, &ln, std.os.MSG_NOSIGNAL); // read the length
+    std.debug.print("finished recv\n", .{});
     if (x == 0) {
         return error.EndOfStream;
     }
     const len = std.mem.readIntLittle(u32, &ln);
-    std.debug.print("{}\n", .{ln[0]});
     if (len > max_len) return error.InvalidPacket;
     var idx: usize = 0;
-    while (idx != buf.len) {
+    while (idx != @bitCast(u32, ln)) { // 4 u8s are 1 u32
         const num_read = try std.os.recv(reader, buf[0..len], std.os.MSG_NOSIGNAL);
         if (num_read == 0) {
             return error.EndOfStream;
         }
         idx += num_read;
+        std.debug.print("idx: {}\nbuf len: {}\n", .{idx, buf.len});
     }
+    std.debug.print("finished main loop\n", .{});
     if (idx != len) return error.Disconnected;
     return buf[0..len];
 }

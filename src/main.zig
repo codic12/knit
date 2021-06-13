@@ -181,12 +181,12 @@ pub fn main() !void {
         fn clientFn(_: void) !void {
             const socket = try std.net.connectUnixSocket("./socket");
             defer socket.close();
-            // std.debug.print("writing message\n", .{});
-            // try writePacket(socket.writer(), "Hello World!");
-            // std.debug.warn("message written, client done\n", .{});
+            std.debug.print("writing message\n", .{});
+            try writePacketWriter(socket.writer(), "Hello World!");
+            std.debug.warn("message written, client done\n", .{});
             // while (true) {
-            //     var buf: [512]u8 = undefined;
-            //     _ = try readPacket(socket.reader(), &buf);
+            //     var _buf: [512]u8 = undefined;
+            //     _ = try readPacketReader(socket.reader(), &_buf);
             // }
         }
     };
@@ -220,7 +220,6 @@ pub fn main() !void {
             },
             else => unreachable
         };
-        std.debug.print("done reading\n", .{});
     }
     // don't run in a loop so we can find memory leaks, nasty things
     // var conn = try server.accept();

@@ -28,7 +28,7 @@ pub const Client = struct {
                     }, // add more
                 }
             };
-            std.debug.print("x {s}\n", .{x});
+            std.debug.print("got packet {s}\n", .{x});
         }
         self.running.store(false, .SeqCst);
         std.debug.print("loop done!\n", .{});
