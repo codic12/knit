@@ -19,7 +19,7 @@ pub fn readPacket(reader: std.os.fd_t, buf: *[max_len]u8) ![]const u8 {
     const len = std.mem.readIntLittle(u32, &ln);
     if (len > max_len) return error.InvalidPacket;
     var idx: usize = 0;
-    while (idx != @bitCast(u32, ln)) { // 4 u8s are 1 u32
+    while (idx != len) { 
         const num_read = try std.os.recv(reader, buf[0..len], std.os.MSG_NOSIGNAL);
         if (num_read == 0) {
             return error.EndOfStream;
