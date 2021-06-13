@@ -184,10 +184,11 @@ pub fn main() !void {
             std.debug.print("writing message\n", .{});
             try writePacketWriter(socket.writer(), "Hello World!");
             std.debug.warn("message written, client done\n", .{});
-            // while (true) {
-            //     var _buf: [512]u8 = undefined;
-            //     _ = try readPacketReader(socket.reader(), &_buf);
-            // }
+            while (true) {
+                var _buf: [512]u8 = undefined;
+                var z = try readPacketReader(socket.reader(), &_buf);
+                std.debug.print("in buf: {s}\n", .{z});
+            }
         }
     };
 
@@ -214,7 +215,7 @@ pub fn main() !void {
             client.deinit();
             continue;
         };
-        writePacket(client.conn, "Hello World!") catch |e| switch (e) {
+        writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
             error.BrokenPipe => {
                 std.debug.print("pipe broken, couldn't send\n", .{});
             },
