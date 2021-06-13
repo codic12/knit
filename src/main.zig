@@ -28,14 +28,12 @@ fn sigchld() void {
         const pid = @intCast(std.os.system.pid_t, rc);
         if (pid == 0) break;
 
-        for (units.items) |u, i| {
-            for (u.cmds) |p, j| {
+        for (units.items) |u| {
+            for (u.cmds) |*p| {
                 if (p.pid == pid) {
-                    // in the future, we want to add a done field instead of just killing the rest.
-                    // no killing, it is prohibited.
-                    units.items[i].running = false;
-                    for (u.cmds) |l| {
-                        if (l.pid != pid) std.os.kill(l.pid, std.os.SIGKILL) catch {}; // this one has already been killed so we kill the rest
+                    p.running = false;
+                    for (u.cmds) |*l| {
+                        if (l.pid != pid) std.os.kill(l.pid, std.os.SIGKILL) catch {}; 
                     }
                 }
             }
@@ -58,7 +56,7 @@ const UnitJson = struct {
         var cmdsar = std.ArrayList(unit.Command).init(allocator);
         defer cmdsar.deinit(); // here is the deinit
         for (self.commands) |x| {
-            try cmdsar.append(unit.Command{ .cmd = x, .pid = 0 });
+            try cmdsar.append(unit.Command{ .cmd = x, .pid = 0, .running = false });
         }
         return unit.Unit{
             .name = self.name,
@@ -116,6 +114,7 @@ pub fn main() !void {
             unit.Command{
                 .cmd = &.{ "ls", "/" },
                 .pid = 0,
+                .running = false,
             },
         },
         unit.UnitKind.Daemon,

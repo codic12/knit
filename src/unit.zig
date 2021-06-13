@@ -27,7 +27,11 @@ pub fn spawn(
 
 pub const UnitKind = enum { Blocking, Daemon };
 
-pub const Command = struct { cmd: []const []const u8, pid: i32 };
+pub const Command = struct {
+    cmd: []const []const u8,
+    pid: i32,
+    running: bool,
+};
 
 /// a Unit is a runtime-loadable service-like structure. it consists of a command and information describing it.
 pub const Unit = struct {
@@ -53,16 +57,16 @@ pub const Unit = struct {
     }
 
     pub fn deinit(self: *Unit) void {
-        self.unload();
         self.allocator.free(self.cmds);
     }
 
     pub fn load(self: *Unit, env: *const std.BufMap) !void {
-        for (self.cmds) |cmd, idx| {
+        for (self.cmds) |*cmd, idx| {
             const x = try spawn(self.allocator, env, cmd.cmd, self.kind == UnitKind.Blocking);
+            self.running = true;
             if (self.kind != UnitKind.Blocking) {
                 self.cmds[idx].pid = x;
-                self.running = true;
+                self.cmds[idx].running = true;
             }
         }
     }
