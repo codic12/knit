@@ -15,7 +15,7 @@ fn _sigchld(_: i32) callconv(.C) void {
 }
 
 fn sigchld() void {
-    std.debug.print("Sigchld", .{});
+    std.debug.print("Sigchld\n", .{});
     while (true) {
         var wstatus: u32 = undefined;
         const rc = std.os.system.waitpid(-1, &wstatus, std.os.WNOHANG);
@@ -59,17 +59,11 @@ const UnitJson = struct {
     kind: []const u8,
     pub fn toUnit(self: *UnitJson, allocator: *std.mem.Allocator) !unit.Unit {
         var cmdsar = std.ArrayList(unit.Command).init(allocator);
-        defer cmdsar.deinit(); // here is the deinit
+        defer cmdsar.deinit();
         for (self.commands) |x| {
             try cmdsar.append(unit.Command{ .cmd = x, .pid = 0, .running = false });
         }
-        return unit.Unit{
-            .name = self.name,
-            .cmds = cmdsar.toOwnedSlice(),
-            .kind = if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Blocking else unreachable, // lol pls fix
-            .allocator = allocator,
-            .running = false,
-        }; // switch to .init()
+        return unit.Unit.init(self.name, cmdsar.toOwnedSlice(), if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Blocking else unreachable, allocator);
         // the callee is not responsible for resource management of the returned Unit.
         // it is owned by the caller, and must be destroyed when out of scope with a .deinit() call.
     }
@@ -113,39 +107,25 @@ pub fn main() !void {
     var env = try std.process.getEnvMap(allocator);
     defer env.deinit();
 
-    var l = try unit.Unit.init(
-        "ls",
-        &.{
-            unit.Command{
-                .cmd = &.{ "ls", "/" },
-                .pid = 0,
-                .running = false,
-            },
-        },
-        unit.UnitKind.Daemon,
-        allocator,
-    );
-
     var stream = std.json.TokenStream.init(
         \\{
         \\  "name": "tree",
         \\  "commands": [
-        \\    ["tree", "/"]
+        \\    ["ls", "/"]
         \\  ],
-        \\  "kind": "task"
+        \\  "kind": "daemon"
         \\}
     );
     var x = try std.json.parse(UnitJson, &stream, .{
         .allocator = allocator,
     });
-    defer std.json.parseFree(UnitJson, x, .{ .allocator = allocator });
     std.debug.print("{s}\n", .{x.commands});
     var y = try x.toUnit(allocator);
     defer y.deinit();
+    defer std.json.parseFree(UnitJson, x, .{ .allocator = allocator });
     std.debug.print("{any}\n", .{y.cmds[0]});
-    defer l.deinit();
-    try units.append(&l);
-    try l.load(&env);
+    try units.append(&y);
+    try y.load(&env);
     std.debug.print("done loading\n", .{});
 
     clients = std.ArrayList(*Client).init(allocator);
@@ -223,7 +203,7 @@ pub fn main() !void {
             error.BrokenPipe => {
                 std.debug.print("pipe broken, couldn't send\n", .{});
             },
-            else => unreachable
+            else => unreachable,
         };
     }
     // don't run in a loop so we can find memory leaks, nasty things
