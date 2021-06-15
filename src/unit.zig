@@ -74,7 +74,8 @@ pub const Unit = struct {
     pub fn unload(self: *Unit) void {
         if (!self.running) return; // already unloaded; better safe than sorry
         for (self.cmds) |p| {
-            _ = std.os.waitpid(p.pid, 0);
+            if (p.running) continue;
+            _ = std.os.kill(p.pid, 0) catch continue;
         }
         self.running = false;
     }

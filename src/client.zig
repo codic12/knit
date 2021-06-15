@@ -37,7 +37,7 @@ pub const Client = struct {
         const lock = self.clients_mutex.acquire();
         defer lock.release(); // and release it later
         std.debug.print("lock acquired!\n", .{});
-        var idx_outer: ?usize = undefined;
+        var idx_outer: ?usize = null;
         for (self.clients.items) |item, idx| {
             if (item == self) {
                 std.debug.print("destroying myself\n", .{});

@@ -10,8 +10,10 @@ var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
 var pipefds: [2]std.os.fd_t = undefined;
 
+// write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
-    _ = std.os.write(pipefds[1], ".") catch unreachable; // error handle please
+    _ = std.os.write(pipefds[1], ".") catch unreachable; // probably error handling isn't signal safe anyways this should work
+    // todo migrate to send so we can use MSG_NOSIGNAL 
 }
 
 fn sigchld() void {
@@ -19,6 +21,7 @@ fn sigchld() void {
     while (true) {
         var wstatus: u32 = undefined;
         const rc = std.os.system.waitpid(-1, &wstatus, std.os.WNOHANG);
+
         switch (std.os.errno(rc)) {
             0 => {}, // no problem
             std.os.system.ECHILD => break, // no more children
@@ -36,8 +39,8 @@ fn sigchld() void {
                     for (u.cmds) |*l| {
                         if (!l.running) x += 1;
                     }
-                    if (x == u.cmds.len) {
-                        std.debug.warn("service completed: all services have exited\n", .{});
+                    if (x == u.cmds.len and u.running) {
+                        std.debug.warn("unit completed: all units have exited\n", .{});
                         u.running = false;
                     }
                 }
@@ -68,7 +71,17 @@ const UnitJson = struct {
         // it is owned by the caller, and must be destroyed when out of scope with a .deinit() call.
     }
 };
-
+fn nextValid(walker: *std.fs.Walker) !?std.fs.Walker.Entry {
+    while (true) {
+        return walker.next() catch |err| switch (err) {
+            error.AccessDenied => {
+                std.debug.warn("warning: AccessDenied in some directory, ignoring\n", .{});
+                continue;
+            },
+            else => return err,
+        };
+    }
+}
 fn sigaction(signo: u6, sigact: *const std.os.system.Sigaction) !void {
     switch (std.os.errno(std.os.system.sigaction(signo, sigact, null))) {
         0 => {},
@@ -90,7 +103,7 @@ pub fn main() !void {
             var rmsg: [1]u8 = .{0};
             while (true) {
                 _ = try std.os.read(pipefds[0], &rmsg);
-                if (rmsg[0] != '.') continue; // . = sigchld handle
+                if (rmsg[0] != '.') continue; // . = "go handle SIGCHLD"
                 rmsg[0] = 0;
                 sigchld();
             }
@@ -103,6 +116,11 @@ pub fn main() !void {
         .mask = std.os.system.empty_sigset,
         .flags = std.os.system.SA_NOCLDSTOP,
     });
+
+    var walker = try std.fs.walkPath(allocator, "./units");
+    while (try nextValid(&walker)) |ent| {
+        std.debug.print("entry: {s}\n", .{ent.path});
+    }
 
     var env = try std.process.getEnvMap(allocator);
     defer env.deinit();
@@ -125,6 +143,8 @@ pub fn main() !void {
     defer std.json.parseFree(UnitJson, x, .{ .allocator = allocator });
     std.debug.print("{any}\n", .{y.cmds[0]});
     try units.append(&y);
+    try units.append(&y);
+    try y.load(&env);
     try y.load(&env);
     std.debug.print("done loading\n", .{});
 
