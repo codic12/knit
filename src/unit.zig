@@ -25,7 +25,7 @@ pub fn spawn(
     return 0; // should not happen
 }
 
-pub const UnitKind = enum { Blocking, Daemon };
+pub const UnitKind = enum { Task, Daemon };
 
 pub const Command = struct {
     cmd: []const []const u8,
@@ -62,9 +62,9 @@ pub const Unit = struct {
 
     pub fn load(self: *Unit, env: *const std.BufMap) !void {
         for (self.cmds) |*cmd, idx| {
-            const x = try spawn(self.allocator, env, cmd.cmd, self.kind == UnitKind.Blocking);
+            const x = try spawn(self.allocator, env, cmd.cmd, self.kind == UnitKind.Task);
             self.running = true;
-            if (self.kind != UnitKind.Blocking) {
+            if (self.kind != UnitKind.Task) {
                 self.cmds[idx].pid = x;
                 self.cmds[idx].running = true;
             }

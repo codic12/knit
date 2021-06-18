@@ -10,6 +10,9 @@ var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
 var pipefds: [2]std.os.fd_t = undefined;
 
+var units_tasks: @TypeOf(units) = undefined;
+var units_daemons: @TypeOf(units) = undefined;
+
 // write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
     _ = std.os.write(pipefds[1], ".") catch unreachable; // probably error handling isn't signal safe anyways this should work
@@ -31,7 +34,7 @@ fn sigchld() void {
         const pid = @intCast(std.os.system.pid_t, rc);
         if (pid == 0) break;
 
-        for (units.items) |*u| {
+        for (units_daemons.items) |*u| {
             for (u.cmds) |*p| {
                 if (p.pid == pid) {
                     p.running = false;
@@ -66,7 +69,7 @@ const UnitJson = struct {
         for (self.commands) |x| {
             try cmdsar.append(unit.Command{ .cmd = x, .pid = 0, .running = false });
         }
-        return unit.Unit.init(self.name, cmdsar.toOwnedSlice(), if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Blocking else unreachable, allocator);
+        return unit.Unit.init(self.name, cmdsar.toOwnedSlice(), if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Task else unreachable, allocator);
         // the callee is not responsible for resource management of the returned Unit.
         // it is owned by the caller, and must be destroyed when out of scope with a .deinit() call.
     }
@@ -93,10 +96,12 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit()) std.log.err("memory leak detected, report a bug\n", .{});
     const allocator = &gpa.allocator;
-    units = std.ArrayList(unit.Unit).init(allocator); // defined at global scope for sigchld handler
+    units = @TypeOf(units).init(allocator); // defined at global scope for sigchld handler
     defer units.deinit();
 
     pipefds = try std.os.pipe();
+    units_daemons = @TypeOf(units_daemons).init(allocator);
+    units_tasks = @TypeOf(units_tasks).init(allocator);
 
     _ = try std.Thread.spawn(struct {
         pub fn callback(_: void) !void {
@@ -132,11 +137,23 @@ pub fn main() !void {
             var parsed = try std.json.parse(UnitJson, &stream, .{ .allocator = allocator });
             var unitized = try parsed.toUnit(allocator);
             try units.append(unitized);
-            try units.items[units.items.len - 1].load(&env);
         }
     }
+    
+    var on_daemons = false;
+    // both contain unit.Unit, we can just copy it ... yet again. shouldn't be super expensive though.
 
-    clients = std.ArrayList(*Client).init(allocator);
+    for (units.items) |u| {
+        if (u.kind == .Task) try units_tasks.append(u) else try units_daemons.append(u);
+    }
+    for (units_tasks.items) |*task| {
+        try task.load(&env);
+    }
+    for (units_daemons.items) |*daemon| {
+        try daemon.load(&env);
+    }
+    
+    clients = @TypeOf(clients).init(allocator);
 
     defer {
         const lock = clients_mutex.acquire();
