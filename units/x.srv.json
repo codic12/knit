@@ -1,0 +1,7 @@
+{
+  "name": "tree",
+  "commands": [
+    ["ls", "/"]
+  ],
+  "kind": "daemon"
+}

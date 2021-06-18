@@ -5,7 +5,7 @@ const Error = error{SigActionFailure};
 usingnamespace @import("packets.zig");
 const Client = @import("client.zig").Client;
 
-var units: std.ArrayList(*unit.Unit) = undefined;
+var units: std.ArrayList(unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
 var pipefds: [2]std.os.fd_t = undefined;
@@ -13,7 +13,7 @@ var pipefds: [2]std.os.fd_t = undefined;
 // write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
     _ = std.os.write(pipefds[1], ".") catch unreachable; // probably error handling isn't signal safe anyways this should work
-    // todo migrate to send so we can use MSG_NOSIGNAL 
+    // todo migrate to send so we can use MSG_NOSIGNAL
 }
 
 fn sigchld() void {
@@ -31,7 +31,7 @@ fn sigchld() void {
         const pid = @intCast(std.os.system.pid_t, rc);
         if (pid == 0) break;
 
-        for (units.items) |u| {
+        for (units.items) |*u| {
             for (u.cmds) |*p| {
                 if (p.pid == pid) {
                     p.running = false;
@@ -40,7 +40,7 @@ fn sigchld() void {
                         if (!l.running) x += 1;
                     }
                     if (x == u.cmds.len and u.running) {
-                        std.debug.warn("unit completed: all units have exited\n", .{});
+                        std.debug.print("unit completed: all units have exited\n", .{});
                         u.running = false;
                     }
                 }
@@ -75,7 +75,7 @@ fn nextValid(walker: *std.fs.Walker) !?std.fs.Walker.Entry {
     while (true) {
         return walker.next() catch |err| switch (err) {
             error.AccessDenied => {
-                std.debug.warn("warning: AccessDenied in some directory, ignoring\n", .{});
+                std.debug.print("warning: AccessDenied in some directory, ignoring\n", .{});
                 continue;
             },
             else => return err,
@@ -93,7 +93,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit()) std.log.err("memory leak detected, report a bug\n", .{});
     const allocator = &gpa.allocator;
-    units = std.ArrayList(*unit.Unit).init(allocator); // defined at global scope for sigchld handler
+    units = std.ArrayList(unit.Unit).init(allocator); // defined at global scope for sigchld handler
     defer units.deinit();
 
     pipefds = try std.os.pipe();
@@ -117,36 +117,24 @@ pub fn main() !void {
         .flags = std.os.system.SA_NOCLDSTOP,
     });
 
-    var walker = try std.fs.walkPath(allocator, "./units");
-    while (try nextValid(&walker)) |ent| {
-        std.debug.print("entry: {s}\n", .{ent.path});
-    }
-
     var env = try std.process.getEnvMap(allocator);
     defer env.deinit();
 
-    var stream = std.json.TokenStream.init(
-        \\{
-        \\  "name": "tree",
-        \\  "commands": [
-        \\    ["ls", "/"]
-        \\  ],
-        \\  "kind": "daemon"
-        \\}
-    );
-    var x = try std.json.parse(UnitJson, &stream, .{
-        .allocator = allocator,
-    });
-    std.debug.print("{s}\n", .{x.commands});
-    var y = try x.toUnit(allocator);
-    defer y.deinit();
-    defer std.json.parseFree(UnitJson, x, .{ .allocator = allocator });
-    std.debug.print("{any}\n", .{y.cmds[0]});
-    try units.append(&y);
-    try units.append(&y);
-    try y.load(&env);
-    try y.load(&env);
-    std.debug.print("done loading\n", .{});
+    var walker = try std.fs.walkPath(allocator, "./units");
+    while (try nextValid(&walker)) |ent| {
+        std.debug.print("entry: {s}\n", .{ent.path});
+        if (ent.kind == .File and std.mem.endsWith(u8, ent.basename, ".srv.json")) {
+            std.debug.print("found a service", .{});
+            var f = try std.fs.cwd().openFile(ent.path, std.fs.File.OpenFlags{ .read = true });
+            var stat = try f.stat();
+            var buf = try f.readToEndAllocOptions(allocator, std.math.maxInt(usize), stat.size, @alignOf(u8), null);
+            var stream = std.json.TokenStream.init(buf);
+            var parsed = try std.json.parse(UnitJson, &stream, .{ .allocator = allocator });
+            var unitized = try parsed.toUnit(allocator);
+            try units.append(unitized);
+            try units.items[units.items.len - 1].load(&env);
+        }
+    }
 
     clients = std.ArrayList(*Client).init(allocator);
 
@@ -187,7 +175,7 @@ pub fn main() !void {
             defer socket.close();
             std.debug.print("writing message\n", .{});
             try writePacketWriter(socket.writer(), "Hello World!");
-            std.debug.warn("message written, client done\n", .{});
+            std.debug.print("message written, client done\n", .{});
             while (true) {
                 var _buf: [512]u8 = undefined;
                 var z = try readPacketReader(socket.reader(), &_buf);
