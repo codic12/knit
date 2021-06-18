@@ -128,8 +128,8 @@ pub fn main() !void {
     var walker = try std.fs.walkPath(allocator, "./units");
     while (try nextValid(&walker)) |ent| {
         std.debug.print("entry: {s}\n", .{ent.path});
-        if (ent.kind == .File and std.mem.endsWith(u8, ent.basename, ".srv.json")) {
-            std.debug.print("found a service", .{});
+        if (ent.kind == .File and std.mem.endsWith(u8, ent.basename, ".unit.json")) {
+            std.debug.print("found a unit", .{});
             var f = try std.fs.cwd().openFile(ent.path, std.fs.File.OpenFlags{ .read = true });
             var stat = try f.stat();
             var buf = try f.readToEndAllocOptions(allocator, std.math.maxInt(usize), stat.size, @alignOf(u8), null);
@@ -152,7 +152,7 @@ pub fn main() !void {
     for (units_daemons.items) |*daemon| {
         try daemon.load(&env);
     }
-    
+
     clients = @TypeOf(clients).init(allocator);
 
     defer {
