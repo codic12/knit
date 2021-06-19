@@ -7,5 +7,6 @@ pub fn build(b: *Builder) !void {
     const exe = b.addExecutable("init-exe", "src/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
+    exe.linkLibC();
     exe.install();
 }

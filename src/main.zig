@@ -5,13 +5,12 @@ const Error = error{SigActionFailure};
 usingnamespace @import("packets.zig");
 const Client = @import("client.zig").Client;
 
-var units: std.ArrayList(unit.Unit) = undefined;
 var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
 var pipefds: [2]std.os.fd_t = undefined;
 
-var units_tasks: @TypeOf(units) = undefined;
-var units_daemons: @TypeOf(units) = undefined;
+var units_tasks: std.ArrayList(unit.Unit) = undefined;
+var units_daemons: @TypeOf(units_tasks) = undefined;
 
 // write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
@@ -22,7 +21,7 @@ fn _sigchld(_: i32) callconv(.C) void {
 fn sigchld() void {
     std.debug.print("Sigchld\n", .{});
     while (true) {
-        var wstatus: u32 = undefined;
+        var wstatus: c_int = undefined;
         const rc = std.os.system.waitpid(-1, &wstatus, std.os.WNOHANG);
 
         switch (std.os.errno(rc)) {
@@ -45,16 +44,10 @@ fn sigchld() void {
                     if (x == u.cmds.len and u.running) {
                         std.debug.print("unit completed: all units have exited\n", .{});
                         u.running = false;
+                        break;
                     }
                 }
             }
-        }
-
-        if (std.os.system.WIFEXITED(wstatus)) { // normal termination
-            continue;
-        }
-        if (std.os.system.WIFSIGNALED(wstatus)) { // killed by signal
-            std.debug.print("note: killed by signal\n", .{});
         }
     }
 }
@@ -67,13 +60,21 @@ const UnitJson = struct {
         var cmdsar = std.ArrayList(unit.Command).init(allocator);
         defer cmdsar.deinit();
         for (self.commands) |x| {
-            try cmdsar.append(unit.Command{ .cmd = x, .pid = 0, .running = false });
+            const dupes = try allocator.dupe([]const u8, x);
+            var i: usize = 0;
+            errdefer {
+                for (dupes[0..i]) |str| allocator.free(str);
+                allocator.free(dupes);
+            }
+            while (i < dupes.len) : (i += 1) {
+                dupes[i] = try allocator.dupe(u8, dupes[i]);
+            }
+            try cmdsar.append(unit.Command{ .cmd = dupes, .pid = 0, .running = false });
         }
         return unit.Unit.init(self.name, cmdsar.toOwnedSlice(), if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Task else unreachable, allocator);
-        // the callee is not responsible for resource management of the returned Unit.
-        // it is owned by the caller, and must be destroyed when out of scope with a .deinit() call.
     }
 };
+
 fn nextValid(walker: *std.fs.Walker) !?std.fs.Walker.Entry {
     while (true) {
         return walker.next() catch |err| switch (err) {
@@ -96,21 +97,22 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit()) std.log.err("memory leak detected, report a bug\n", .{});
     const allocator = &gpa.allocator;
-    units = @TypeOf(units).init(allocator); // defined at global scope for sigchld handler
-    defer units.deinit();
+    var units = std.ArrayList(unit.Unit).init(allocator); // defined at global scope for sigchld handler
+    // the deinit goes when we're done with it.
 
     pipefds = try std.os.pipe();
     units_daemons = @TypeOf(units_daemons).init(allocator);
     units_tasks = @TypeOf(units_tasks).init(allocator);
+    // same for deinit as units
 
     _ = try std.Thread.spawn(struct {
         pub fn callback(_: void) !void {
             var rmsg: [1]u8 = .{0};
             while (true) {
-                _ = try std.os.read(pipefds[0], &rmsg);
-                if (rmsg[0] != '.') continue; // . = "go handle SIGCHLD"
-                rmsg[0] = 0;
-                sigchld();
+            _ = try std.os.read(pipefds[0], &rmsg);
+            if (rmsg[0] != '.') continue; // . = "go handle SIGCHLD"
+            rmsg[0] = 0;
+            sigchld();
             }
         }
     }.callback, {});
@@ -126,6 +128,7 @@ pub fn main() !void {
     defer env.deinit();
 
     var walker = try std.fs.walkPath(allocator, "./units");
+    defer walker.deinit();
     while (try nextValid(&walker)) |ent| {
         std.debug.print("entry: {s}\n", .{ent.path});
         if (ent.kind == .File and std.mem.endsWith(u8, ent.basename, ".unit.json")) {
@@ -133,19 +136,22 @@ pub fn main() !void {
             var f = try std.fs.cwd().openFile(ent.path, std.fs.File.OpenFlags{ .read = true });
             var stat = try f.stat();
             var buf = try f.readToEndAllocOptions(allocator, std.math.maxInt(usize), stat.size, @alignOf(u8), null);
+            defer allocator.free(buf);
             var stream = std.json.TokenStream.init(buf);
             var parsed = try std.json.parse(UnitJson, &stream, .{ .allocator = allocator });
+            defer std.json.parseFree(UnitJson, parsed, .{ .allocator = allocator });
             var unitized = try parsed.toUnit(allocator);
             try units.append(unitized);
         }
     }
-    
+
     var on_daemons = false;
     // both contain unit.Unit, we can just copy it ... yet again. shouldn't be super expensive though.
 
     for (units.items) |u| {
         if (u.kind == .Task) try units_tasks.append(u) else try units_daemons.append(u);
     }
+    units.deinit();
     for (units_tasks.items) |*task| {
         try task.load(&env);
     }
@@ -162,6 +168,14 @@ pub fn main() !void {
             item.deinit(); // dont bother removing, we're gonna clean it up and exit anyways
         }
         clients.deinit();
+        for (units_tasks.items) |*t| {
+            t.deinit();
+        }
+        for (units_daemons.items) |*t| {
+            t.deinit();
+        }
+        units_tasks.deinit();
+        units_daemons.deinit();
     }
 
     var addr = std.mem.zeroes(std.os.sockaddr_un);
@@ -193,11 +207,11 @@ pub fn main() !void {
             std.debug.print("writing message\n", .{});
             try writePacketWriter(socket.writer(), "Hello World!");
             std.debug.print("message written, client done\n", .{});
-            while (true) {
-                var _buf: [512]u8 = undefined;
-                var z = try readPacketReader(socket.reader(), &_buf);
-                std.debug.print("in buf: {s}\n", .{z});
-            }
+            // while (true) {
+            //     var _buf: [512]u8 = undefined;
+            //     var z = try readPacketReader(socket.reader(), &_buf);
+            //     std.debug.print("in buf: {s}\n", .{z});
+            // }
         }
     };
 
@@ -206,36 +220,35 @@ pub fn main() !void {
     var running = true;
 
     while (true) {
-        cl = try std.os.accept(fd, null, null, 0);
-        // var creds = std.mem.zeroes(ucred);
-        // var len: u32 = @sizeOf(ucred);
-        // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
-        // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
-        var client = try Client.init(
-            cl,
-            allocator,
-            &clients,
-            &clients_mutex,
-        );
-        try client.runEvLoop();
-        const lock = clients_mutex.acquire();
-        defer lock.release();
-        clients.append(client) catch {
-            client.deinit();
-            continue;
-        };
-        writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
-            error.BrokenPipe => {
-                std.debug.print("pipe broken, couldn't send\n", .{});
-            },
-            else => unreachable,
-        };
+    cl = try std.os.accept(fd, null, null, 0);
+    // var creds = std.mem.zeroes(ucred);
+    // var len: u32 = @sizeOf(ucred);
+    // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
+    // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
+    var client = try Client.init(
+    cl,
+    allocator,
+    &clients,
+    &clients_mutex,
+    );
+    try client.runEvLoop();
+    const lock = clients_mutex.acquire();
+    defer lock.release();
+    clients.append(client) catch {
+    client.deinit();
+    continue;
+    };
+    writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
+    error.BrokenPipe => {
+    std.debug.print("pipe broken, couldn't send\n", .{});
+    },
+    else => unreachable,
+    };
     }
-    // don't run in a loop so we can find memory leaks, nasty things
-    // var conn = try server.accept();
+    // var conn = try std.os.accept(fd, null, null, 0);
     // var client = try Client.init(conn, allocator, &clients, &clients_mutex);
     // try client.runEvLoop();
     // const lock = clients_mutex.acquire();
-    // defer lock.release();
     // try clients.append(client);
+    // lock.release();
 }
