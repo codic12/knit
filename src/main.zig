@@ -71,7 +71,12 @@ const UnitJson = struct {
             }
             try cmdsar.append(unit.Command{ .cmd = dupes, .pid = 0, .running = false });
         }
-        return unit.Unit.init(self.name, cmdsar.toOwnedSlice(), if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Task else unreachable, allocator);
+        return unit.Unit.init(
+            allocator,
+            self.name,
+            cmdsar.toOwnedSlice(),
+            if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Task else unreachable,
+        );
     }
 };
 
@@ -109,10 +114,10 @@ pub fn main() !void {
         pub fn callback(_: void) !void {
             var rmsg: [1]u8 = .{0};
             while (true) {
-            _ = try std.os.read(pipefds[0], &rmsg);
-            if (rmsg[0] != '.') continue; // . = "go handle SIGCHLD"
-            rmsg[0] = 0;
-            sigchld();
+                _ = try std.os.read(pipefds[0], &rmsg);
+                if (rmsg[0] != '.') continue; // . = "go handle SIGCHLD"
+                rmsg[0] = 0;
+                sigchld();
             }
         }
     }.callback, {});
@@ -220,30 +225,30 @@ pub fn main() !void {
     var running = true;
 
     while (true) {
-    cl = try std.os.accept(fd, null, null, 0);
-    // var creds = std.mem.zeroes(ucred);
-    // var len: u32 = @sizeOf(ucred);
-    // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
-    // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
-    var client = try Client.init(
-    cl,
-    allocator,
-    &clients,
-    &clients_mutex,
-    );
-    try client.runEvLoop();
-    const lock = clients_mutex.acquire();
-    defer lock.release();
-    clients.append(client) catch {
-    client.deinit();
-    continue;
-    };
-    writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
-    error.BrokenPipe => {
-    std.debug.print("pipe broken, couldn't send\n", .{});
-    },
-    else => unreachable,
-    };
+        cl = try std.os.accept(fd, null, null, 0);
+        // var creds = std.mem.zeroes(ucred);
+        // var len: u32 = @sizeOf(ucred);
+        // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
+        // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
+        var client = try Client.init(
+            cl,
+            allocator,
+            &clients,
+            &clients_mutex,
+        );
+        try client.runEvLoop();
+        const lock = clients_mutex.acquire();
+        defer lock.release();
+        clients.append(client) catch {
+            client.deinit();
+            continue;
+        };
+        writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
+            error.BrokenPipe => {
+                std.debug.print("pipe broken, couldn't send\n", .{});
+            },
+            else => unreachable,
+        };
     }
     // var conn = try std.os.accept(fd, null, null, 0);
     // var client = try Client.init(conn, allocator, &clients, &clients_mutex);

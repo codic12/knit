@@ -50,10 +50,10 @@ pub const Unit = struct {
     allocator: *std.mem.Allocator,
 
     pub fn init(
+        allocator: *std.mem.Allocator,
         name: []const u8,
         cmds: []Command,
         kind: UnitKind,
-        allocator: *std.mem.Allocator,
     ) !Unit {
         return Unit{
             .name = name,
