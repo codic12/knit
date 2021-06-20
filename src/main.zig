@@ -14,8 +14,7 @@ var units_daemons: @TypeOf(units_tasks) = undefined;
 
 // write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
-    _ = std.os.write(pipefds[1], ".") catch unreachable; // probably error handling isn't signal safe anyways this should work
-    // todo migrate to send so we can use MSG_NOSIGNAL
+    _ = std.os.send(pipefds[1], ".", std.os.MSG_NOSIGNAL) catch {};
 }
 
 fn sigchld() void {
@@ -132,7 +131,7 @@ pub fn main() !void {
     var env = try std.process.getEnvMap(allocator);
     defer env.deinit();
 
-    var walker = try std.fs.walkPath(allocator, "./units");
+    var walker = try std.fs.walkPath(allocator, "/home/user/knit/units");
     defer walker.deinit();
     while (try nextValid(&walker)) |ent| {
         std.debug.print("entry: {s}\n", .{ent.path});
@@ -151,12 +150,13 @@ pub fn main() !void {
     }
 
     var on_daemons = false;
-    // both contain unit.Unit, we can just copy it ... yet again. shouldn't be super expensive though.
 
     for (units.items) |u| {
         if (u.kind == .Task) try units_tasks.append(u) else try units_daemons.append(u);
     }
+
     units.deinit();
+
     for (units_tasks.items) |*task| {
         try task.load(&env);
     }

@@ -1,7 +1,0 @@
-{
-  "name": "tree",
-  "commands": [
-    ["/usr/bin/ls", "/"]
-  ],
-  "kind": "daemon"
-}
