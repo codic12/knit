@@ -1,0 +1,7 @@
+{
+  "name": "agetty",
+  "commands": [
+    ["/usr/bin/bash"]
+  ],
+  "kind": "daemon"
+}
