@@ -1,7 +1,7 @@
 {
   "name": "agetty",
   "commands": [
-    ["/usr/bin/bash"]
+    ["/usr/bin/agetty", "tty1"]
   ],
   "kind": "daemon"
 }
