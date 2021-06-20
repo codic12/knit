@@ -14,7 +14,7 @@ var units_daemons: @TypeOf(units_tasks) = undefined;
 
 // write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
-    _ = std.os.send(pipefds[1], ".", std.os.MSG_NOSIGNAL) catch {};
+    _ = std.os.write(pipefds[1], ".") catch {};
 }
 
 fn sigchld() void {
