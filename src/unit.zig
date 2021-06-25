@@ -2,7 +2,6 @@ const std = @import("std");
 
 pub fn spawn(
     allocator: *std.mem.Allocator,
-    env: *const std.BufMap,
     cmd: []const []const u8,
     wait: bool,
 ) !i32 {
@@ -72,10 +71,10 @@ pub const Unit = struct {
         self.allocator.free(self.cmds);
     }
 
-    pub fn load(self: *Unit, env: *const std.BufMap) !void {
+    pub fn load(self: *Unit) !void {
         for (self.cmds) |*cmd, idx| {
             std.debug.print("{any}", .{cmd.cmd});
-            const x = try spawn(self.allocator, env, cmd.cmd, self.kind == UnitKind.Task);
+            const x = try spawn(self.allocator, cmd.cmd, self.kind == UnitKind.Task);
             self.running = true;
             if (self.kind != UnitKind.Task) {
                 self.cmds[idx].pid = x;

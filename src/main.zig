@@ -149,8 +149,6 @@ pub fn main() !void {
         }
     }
 
-    var on_daemons = false;
-
     for (units.items) |u| {
         if (u.kind == .Task) try units_tasks.append(u) else try units_daemons.append(u);
     }
@@ -158,10 +156,10 @@ pub fn main() !void {
     units.deinit();
 
     for (units_tasks.items) |*task| {
-        try task.load(&env);
+        try task.load();
     }
     for (units_daemons.items) |*daemon| {
-        try daemon.load(&env);
+        try daemon.load();
     }
 
     clients = @TypeOf(clients).init(allocator);
@@ -184,10 +182,8 @@ pub fn main() !void {
     }
 
     var addr = std.mem.zeroes(std.os.sockaddr_un);
-    var buf: [512]u8 = undefined;
     var fd: std.os.socket_t = undefined;
     var cl: std.os.socket_t = undefined;
-    var rc: usize = undefined;
 
     fd = try std.os.socket(std.os.AF_UNIX, std.os.SOCK_STREAM, 0);
 
@@ -223,8 +219,7 @@ pub fn main() !void {
     const t = try std.Thread.spawn(S.clientFn, {}); // spawn client
     defer t.wait();
     var running = true;
-
-    while (true) {
+    while (running) {
         cl = try std.os.accept(fd, null, null, 0);
         // var creds = std.mem.zeroes(ucred);
         // var len: u32 = @sizeOf(ucred);
