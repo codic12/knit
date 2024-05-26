@@ -1,7 +1,0 @@
-{
-  "name": "agetty",
-  "commands": [
-    ["/usr/bin/agetty", "tty1"]
-  ],
-  "kind": "daemon"
-}

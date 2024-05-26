@@ -1,12 +1,11 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
 
-pub fn build(b: *Builder) !void {
-    const target = b.standardTargetOptions(.{});
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+        .name = "knit",
+        .root_source_file = b.path("src/main.zig"),
+        .target = b.host,
+    });
 
-    const exe = b.addExecutable("init-exe", "src/main.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.linkLibC();
-    exe.install();
+    b.installArtifact(exe);
 }

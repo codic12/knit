@@ -2,34 +2,33 @@ const std = @import("std");
 const unit = @import("unit.zig");
 const max_len = 512;
 const Error = error{SigActionFailure};
-usingnamespace @import("packets.zig");
+const packets = @import("packets.zig");
 const Client = @import("client.zig").Client;
 
 var clients: std.ArrayList(*Client) = undefined;
 var clients_mutex = std.Thread.Mutex{};
-var pipefds: [2]std.os.fd_t = undefined;
+var pipefds: [2]std.posix.fd_t = undefined;
 
 var units_tasks: std.ArrayList(unit.Unit) = undefined;
 var units_daemons: @TypeOf(units_tasks) = undefined;
 
 // write is signal safe
 fn _sigchld(_: i32) callconv(.C) void {
-    _ = std.os.write(pipefds[1], ".") catch {};
+    _ = std.posix.write(pipefds[1], ".") catch {};
 }
 
 fn sigchld() void {
     std.debug.print("Sigchld\n", .{});
     while (true) {
         var wstatus: c_int = undefined;
-        const rc = std.os.system.waitpid(-1, &wstatus, std.os.WNOHANG);
+        const rc = std.posix.system.waitpid(-1, &wstatus, std.posix.W.NOHANG);
 
-        switch (std.os.errno(rc)) {
+        switch (rc) {
             0 => {}, // no problem
-            std.os.system.ECHILD => break, // no more children
-            else => break, // waitpid failure
+            else => break,
         }
 
-        const pid = @intCast(std.os.system.pid_t, rc);
+        const pid: std.posix.system.pid_t = @intCast(rc);
         if (pid == 0) break;
 
         for (units_daemons.items) |*u| {
@@ -55,8 +54,8 @@ const UnitJson = struct {
     name: []const u8,
     commands: []const []const []const u8,
     kind: []const u8,
-    pub fn toUnit(self: *UnitJson, allocator: *std.mem.Allocator) !unit.Unit {
-        var cmdsar = std.ArrayList(unit.Command).init(allocator);
+    pub fn toUnit(self: *UnitJson, allocator: *const std.mem.Allocator) !unit.Unit {
+        var cmdsar = std.ArrayList(unit.Command).init(allocator.*);
         defer cmdsar.deinit();
         for (self.commands) |x| {
             const dupes = try allocator.dupe([]const u8, x);
@@ -73,13 +72,13 @@ const UnitJson = struct {
         return unit.Unit.init(
             allocator,
             self.name,
-            cmdsar.toOwnedSlice(),
+            try cmdsar.toOwnedSlice(),
             if (std.mem.eql(u8, self.kind, "daemon")) unit.UnitKind.Daemon else if (std.mem.eql(u8, self.kind, "task")) unit.UnitKind.Task else unreachable,
         );
     }
 };
 
-fn nextValid(walker: *std.fs.Walker) !?std.fs.Walker.Entry {
+fn nextValid(walker: *std.fs.Dir.Walker) !?std.fs.Dir.Walker.Entry {
     while (true) {
         return walker.next() catch |err| switch (err) {
             error.AccessDenied => {
@@ -90,61 +89,62 @@ fn nextValid(walker: *std.fs.Walker) !?std.fs.Walker.Entry {
         };
     }
 }
-fn sigaction(signo: u6, sigact: *const std.os.system.Sigaction) !void {
-    switch (std.os.errno(std.os.system.sigaction(signo, sigact, null))) {
-        0 => {},
-        else => return error.SigActionFailure,
-    }
+fn sigaction(signo: u6, sigact: *const std.posix.Sigaction) !void {
+    try std.posix.sigaction(signo, sigact, null);
 }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer if (gpa.deinit()) std.log.err("memory leak detected, report a bug\n", .{});
-    const allocator = &gpa.allocator;
+    defer {
+        if (gpa.deinit() == .leak) @panic("Memory leak");
+    }
+    const allocator = gpa.allocator();
     var units = std.ArrayList(unit.Unit).init(allocator); // defined at global scope for sigchld handler
     // the deinit goes when we're done with it.
 
-    pipefds = try std.os.pipe();
+    pipefds = try std.posix.pipe();
     units_daemons = @TypeOf(units_daemons).init(allocator);
     units_tasks = @TypeOf(units_tasks).init(allocator);
     // same for deinit as units
 
-    _ = try std.Thread.spawn(struct {
-        pub fn callback(_: void) !void {
+    _ = try std.Thread.spawn(.{}, struct {
+        pub fn callback() !void {
             var rmsg: [1]u8 = .{0};
             while (true) {
-                _ = try std.os.read(pipefds[0], &rmsg);
+                _ = try std.posix.read(pipefds[0], &rmsg);
                 if (rmsg[0] != '.') continue; // . = "go handle SIGCHLD"
                 rmsg[0] = 0;
                 sigchld();
             }
         }
-    }.callback, {});
+    }.callback, .{});
 
     // handle SIGCHLD
-    try sigaction(std.os.SIGCHLD, &.{
+    try sigaction(std.posix.SIG.CHLD, &.{
         .handler = .{ .handler = _sigchld },
-        .mask = std.os.system.empty_sigset,
-        .flags = std.os.system.SA_NOCLDSTOP,
+        .mask = std.posix.system.empty_sigset,
+        .flags = std.posix.system.SA.NOCLDSTOP,
     });
 
     var env = try std.process.getEnvMap(allocator);
     defer env.deinit();
 
-    var walker = try std.fs.walkPath(allocator, "/home/user/knit/units");
+    var dir = try std.fs.cwd().openDir("units", .{ .iterate = true });
+    defer dir.close();
+    var walker = try dir.walk(allocator);
     defer walker.deinit();
     while (try nextValid(&walker)) |ent| {
         std.debug.print("entry: {s}\n", .{ent.path});
-        if (ent.kind == .File and std.mem.endsWith(u8, ent.basename, ".unit.json")) {
+        if (ent.kind == .file and std.mem.endsWith(u8, ent.basename, ".unit.json")) {
             std.debug.print("found a unit", .{});
-            var f = try std.fs.cwd().openFile(ent.path, std.fs.File.OpenFlags{ .read = true });
-            var stat = try f.stat();
-            var buf = try f.readToEndAllocOptions(allocator, std.math.maxInt(usize), stat.size, @alignOf(u8), null);
+            var f = try dir.openFile(ent.path, .{});
+            const stat = try f.stat();
+            const buf = try f.readToEndAllocOptions(allocator, std.math.maxInt(usize), stat.size, @alignOf(u8), null);
             defer allocator.free(buf);
-            var stream = std.json.TokenStream.init(buf);
-            var parsed = try std.json.parse(UnitJson, &stream, .{ .allocator = allocator });
-            defer std.json.parseFree(UnitJson, parsed, .{ .allocator = allocator });
-            var unitized = try parsed.toUnit(allocator);
+            // var stream = std.json.TokenStream.init(buf);
+            var parsed = try std.json.parseFromSlice(UnitJson, allocator, buf, .{});
+            defer parsed.deinit();
+            const unitized = try parsed.value.toUnit(&allocator);
             try units.append(unitized);
         }
     }
@@ -165,8 +165,8 @@ pub fn main() !void {
     clients = @TypeOf(clients).init(allocator);
 
     defer {
-        const lock = clients_mutex.acquire();
-        defer lock.release();
+        clients_mutex.lock();
+        defer clients_mutex.unlock();
         for (clients.items) |item| {
             item.deinit(); // dont bother removing, we're gonna clean it up and exit anyways
         }
@@ -181,15 +181,15 @@ pub fn main() !void {
         units_daemons.deinit();
     }
 
-    var addr = std.mem.zeroes(std.os.sockaddr_un);
-    var fd: std.os.socket_t = undefined;
-    var cl: std.os.socket_t = undefined;
+    var addr = std.mem.zeroes(std.posix.sockaddr.un);
+    var fd: std.posix.socket_t = undefined;
+    var cl: std.posix.socket_t = undefined;
 
-    fd = try std.os.socket(std.os.AF_UNIX, std.os.SOCK_STREAM, 0);
+    fd = try std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0);
 
-    addr.family = std.os.AF_UNIX;
-    std.mem.set(u8, &addr.path, 0);
-    std.mem.copy(u8, &addr.path, "./socket");
+    addr.family = std.posix.AF.UNIX;
+    //@memset(addr.path[0..addr.path.len], 0);
+    @memcpy(addr.path[0..8], "./socket");
 
     std.debug.print("{s}\n", .{addr.path}); // "./socket"
 
@@ -198,15 +198,15 @@ pub fn main() !void {
         else => unreachable, // omg please stop
     };
 
-    try std.os.bind(fd, @ptrCast(*const std.os.sockaddr, &addr), @sizeOf(@TypeOf(addr)));
-    try std.os.listen(fd, 5); // backlog 5
+    try std.posix.bind(fd, @ptrCast(&addr), @sizeOf(@TypeOf(addr)));
+    try std.posix.listen(fd, 5); // backlog 5
 
     const S = struct {
-        fn clientFn(_: void) !void {
+        fn clientFn() !void {
             const socket = try std.net.connectUnixSocket("./socket");
             defer socket.close();
             std.debug.print("writing message\n", .{});
-            try writePacketWriter(socket.writer(), "Hello World!");
+            try packets.writePacketWriter(socket.writer(), "Hello World!");
             std.debug.print("message written, client done\n", .{});
             // while (true) {
             //     var _buf: [512]u8 = undefined;
@@ -216,39 +216,39 @@ pub fn main() !void {
         }
     };
 
-    const t = try std.Thread.spawn(S.clientFn, {}); // spawn client
-    defer t.wait();
-    var running = true;
+    const t = try std.Thread.spawn(.{}, S.clientFn, .{}); // spawn client
+    defer t.join();
+    const running = true;
     while (running) {
-        cl = try std.os.accept(fd, null, null, 0);
+        cl = try std.posix.accept(fd, null, null, 0);
         // var creds = std.mem.zeroes(ucred);
         // var len: u32 = @sizeOf(ucred);
-        // var thing = std.c.getsockopt(cl, std.os.SOL_SOCKET, std.os.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
-        // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.os.errno(thing) });
+        // var thing = std.c.getsockopt(cl, std.posix.SOL_SOCKET, std.posix.SO_PEERCRED, @ptrCast(*c_void, &creds), &len);
+        // std.debug.print("uid: {}\nerror: {}\nerrno: {}\n", .{ creds.uid, thing, std.posix.errno(thing) });
         var client = try Client.init(
             cl,
-            allocator,
+            &allocator,
             &clients,
             &clients_mutex,
         );
         try client.runEvLoop();
-        const lock = clients_mutex.acquire();
-        defer lock.release();
+        clients_mutex.lock();
+        defer clients_mutex.unlock();
         clients.append(client) catch {
             client.deinit();
             continue;
         };
-        writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
+        packets.writePacket(client.conn, "Hello World from your sweet server!") catch |e| switch (e) {
             error.BrokenPipe => {
                 std.debug.print("pipe broken, couldn't send\n", .{});
             },
             else => unreachable,
         };
     }
-    // var conn = try std.os.accept(fd, null, null, 0);
+    // var conn = try std.posix.accept(fd, null, null, 0);
     // var client = try Client.init(conn, allocator, &clients, &clients_mutex);
     // try client.runEvLoop();
-    // const lock = clients_mutex.acquire();
+    // const lock = clients_mutex.lock();
     // try clients.append(client);
-    // lock.release();
+    // lock.unlock();
 }

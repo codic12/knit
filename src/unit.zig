@@ -1,22 +1,22 @@
 const std = @import("std");
 
 pub fn spawn(
-    allocator: *std.mem.Allocator,
+    allocator: *const std.mem.Allocator,
     cmd: []const []const u8,
     wait: bool,
 ) !i32 {
-    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    var arena_allocator = std.heap.ArenaAllocator.init(allocator.*);
     defer arena_allocator.deinit();
-    const arena = &arena_allocator.allocator;
+    const arena = arena_allocator.allocator();
 
     const argv_buf = try arena.allocSentinel(?[*:0]u8, cmd.len, null);
 
-    for (cmd) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
-    const pid = try std.os.fork();
+    for (cmd, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    const pid = try std.posix.fork();
 
     switch (pid) {
         0 => {
-            switch (std.os.execveZ(argv_buf.ptr[0].?, argv_buf.ptr, std.c.environ)) {
+            switch (std.posix.execveZ(argv_buf.ptr[0].?, argv_buf.ptr, std.c.environ)) {
                 error.AccessDenied => std.log.err("access denied", .{}),
                 error.FileNotFound => std.log.err("file not found", .{}),
                 else => std.log.err("unhandled error", .{}),
@@ -24,7 +24,7 @@ pub fn spawn(
         },
         else => {
             if (wait) {
-                _ = std.os.waitpid(pid, 0);
+                _ = std.posix.waitpid(pid, 0);
             }
             return pid;
         },
@@ -46,10 +46,10 @@ pub const Unit = struct {
     cmds: []Command,
     kind: UnitKind,
     running: bool,
-    allocator: *std.mem.Allocator,
+    allocator: *const std.mem.Allocator,
 
     pub fn init(
-        allocator: *std.mem.Allocator,
+        allocator: *const std.mem.Allocator,
         name: []const u8,
         cmds: []Command,
         kind: UnitKind,
@@ -72,7 +72,7 @@ pub const Unit = struct {
     }
 
     pub fn load(self: *Unit) !void {
-        for (self.cmds) |*cmd, idx| {
+        for (self.cmds, 0..) |*cmd, idx| {
             std.debug.print("{any}", .{cmd.cmd});
             const x = try spawn(self.allocator, cmd.cmd, self.kind == UnitKind.Task);
             self.running = true;
@@ -87,7 +87,7 @@ pub const Unit = struct {
         if (!self.running) return; // already unloaded; better safe than sorry
         for (self.cmds) |p| {
             if (p.running) continue;
-            _ = std.os.kill(p.pid, 0) catch continue;
+            _ = std.posix.kill(p.pid, 0) catch continue;
         }
         self.running = false;
     }
